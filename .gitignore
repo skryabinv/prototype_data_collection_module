@@ -1,0 +1,87 @@
+# Build
+/build/
+/cmake-build-*/
+/out/
+/Debug/
+/Release/
+/RelWithDebInfo/
+/MinSizeRel/
+
+# Object / binary artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.d
+*.su
+*.swo
+*.swp
+*~
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+# compile_commands.json  <-- (нужен для IntelliSense в Cursor/VS Code)
+CTestTestfile.cmake
+_deps/
+Testing/
+*.cmake
+!CMakeLists.txt
+!cmake/**/*.cmake
+!*.cmake             
+
+# IDE / editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/c_cpp_properties.json
+.idea/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+.clangd/               <-- (если будем использовать clangd)
+
+# STM32CubeMX / Eclipse
+.settings/
+.project
+.cproject
+.mxproject.bak
+*.launch
+
+# Keil / IAR (если появятся)
+*.uvguix*
+*.uvoptx
+*.crf
+*.dep
+*.Bak
+EWARM/
+MDK-ARM/DebugConfig/
+MDK-ARM/RTE/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# Python / scripts cache
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Logs / temp
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
