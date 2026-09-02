@@ -1,0 +1,3 @@
+[submodule "vendor/bmp3-sensor-api"]
+	path = vendor/bmp3-sensor-api
+	url = https://git.omnisciens.ru/vio/bmp3-sensor-api.git
