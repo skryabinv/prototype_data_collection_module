@@ -1,5 +1,6 @@
 #include "SensorTask.hpp"
 #include "Bmp390.hpp"
+#include "Mmc5983ma.hpp"
 #include "cmsis_os2.h"
 #include <cstdio>
 
@@ -9,41 +10,75 @@ void StartSensorTask(void* argument)
 {
     (void)argument;
 
+    // Оба датчика на одной шине I2C1, разные 7-bit адреса: 0x76 и 0x30
     Bmp390 bmp390(hi2c1, BMP3_ADDR_I2C_PRIM);
+    Mmc5983ma mmc5983ma(hi2c1, 0x30);
 
     if (const auto err = bmp390.init(); err != Bmp390::Error::Ok) {
-        printf("BMP390 Init Failed, Error: %d\n", static_cast<int>(err));
+        printf("BMP390 init failed: %d\n", static_cast<int>(err));
+        for (;;) {
+            osDelay(1000);
+        }
+    }
+    if (const auto err = mmc5983ma.init(); err != Mmc5983ma::Error::Ok) {
+        printf("MMC5983MA init failed: %d\n", static_cast<int>(err));
         for (;;) {
             osDelay(1000);
         }
     }
 
-    Bmp390::Config config{};
-    config.pressOversampling = BMP3_OVERSAMPLING_16X;
-    config.tempOversampling = BMP3_OVERSAMPLING_2X;
-    config.iirFilter = BMP3_IIR_FILTER_COEFF_3;
-    config.odr = BMP3_ODR_25_HZ;
-    config.opMode = BMP3_MODE_NORMAL;
+    Bmp390::Config bmpConfig{};
+    bmpConfig.pressOversampling = BMP3_OVERSAMPLING_16X;
+    bmpConfig.tempOversampling = BMP3_OVERSAMPLING_2X;
+    bmpConfig.iirFilter = BMP3_IIR_FILTER_COEFF_3;
+    bmpConfig.odr = BMP3_ODR_25_HZ;
+    bmpConfig.opMode = BMP3_MODE_NORMAL;
 
-    if (const auto err = bmp390.configure(config); err != Bmp390::Error::Ok) {
-        printf("BMP390 Configure Failed, Error: %d\n", static_cast<int>(err));
+    Mmc5983ma::Config mmcConfig{};
+    mmcConfig.autoSetReset = true;
+    mmcConfig.bandWidth = 0x00; // ~100 Hz measurement time
+
+    if (const auto err = bmp390.configure(bmpConfig); err != Bmp390::Error::Ok) {
+        printf("BMP390 configure failed: %d\n", static_cast<int>(err));
+        for (;;) {
+            osDelay(1000);
+        }
+    }
+    if (const auto err = mmc5983ma.configure(mmcConfig); err != Mmc5983ma::Error::Ok) {
+        printf("MMC5983MA configure failed: %d\n", static_cast<int>(err));
         for (;;) {
             osDelay(1000);
         }
     }
 
-    printf("BMP390 Initialized and configured\n");
+    printf("Sensors ready (BMP390 + MMC5983MA on I2C1)\n");
 
     for (;;) {
+        bool gotData = false;
+
+        // Датчики независимы: не вкладываем один в другой
         if (bmp390.hasUnreadData()) {
             if (const auto data = bmp390.readData(); data.has_value()) {
-                printf("Temp: %.2f C, Pressure: %.2f Pa\n",
-                       data->temperature, data->pressure);
+                printf("BMP390  T=%.2f C  P=%.2f Pa\n", data->temperature, data->pressure);
+                gotData = true;
             } else {
                 printf("BMP390 read failed\n");
             }
-        } else {
-            // Нет новых данных — отдаём CPU на 1 тик (configTICK_RATE_HZ = 1000)
+        }
+
+        if (mmc5983ma.hasUnreadData()) {
+            const auto data = mmc5983ma.readData();
+            if (data.valid) {
+                printf("MMC5983 X=%.3f Y=%.3f Z=%.3f G  T=%.1f C\n",
+                       data.x, data.y, data.z, data.temperature);
+                gotData = true;
+            } else {
+                printf("MMC5983MA read failed\n");
+            }
+        }
+
+        // Нет новых данных ни с одного датчика — yield на 1 тик (1 мс)
+        if (!gotData) {
             osDelay(1);
         }
     }
