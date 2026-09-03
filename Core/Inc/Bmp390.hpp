@@ -58,7 +58,10 @@ public:
     /// Конфигурация режимов/OSR/ODR/фильтра (можно вызывать повторно).
     [[nodiscard]] Error configure(const Config& config);
 
-    /// Чтение температуры и давления.
+    /// Есть непрочитанный sample (флаги DRDY в status).
+    [[nodiscard]] bool hasUnreadData();
+
+    /// Чтение температуры и давления (когда hasUnreadData() == true).
     [[nodiscard]] std::optional<SensorData> readData();
 
     [[nodiscard]] bool isInitialized() const { return mInitialized; }
@@ -71,6 +74,9 @@ private:
     bool mInitialized = false;
     bmp3_dev mDev{};
     bmp3_settings mSettings{};
+
+    [[nodiscard]] bool fetchStatus(bmp3_status& status);
+    [[nodiscard]] static bool isDataReady(const bmp3_status& status);
 
     static int8_t i2cRead(uint8_t reg_addr, uint8_t* reg_data, uint32_t len, void* intf_ptr);
     static int8_t i2cWrite(uint8_t reg_addr, const uint8_t* reg_data, uint32_t len, void* intf_ptr);

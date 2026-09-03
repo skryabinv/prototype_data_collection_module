@@ -35,12 +35,16 @@ void StartSensorTask(void* argument)
     printf("BMP390 Initialized and configured\n");
 
     for (;;) {
-        if (const auto data = bmp390.readData(); data.has_value()) {
-            printf("Temp: %.2f C, Pressure: %.2f Pa\n",
-                   data->temperature, data->pressure);
+        if (bmp390.hasUnreadData()) {
+            if (const auto data = bmp390.readData(); data.has_value()) {
+                printf("Temp: %.2f C, Pressure: %.2f Pa\n",
+                       data->temperature, data->pressure);
+            } else {
+                printf("BMP390 read failed\n");
+            }
         } else {
-            printf("BMP390 data not ready / read failed\n");
+            // Нет новых данных — отдаём CPU на 1 тик (configTICK_RATE_HZ = 1000)
+            osDelay(1);
         }
-        osDelay(100);
     }
 }

@@ -50,21 +50,31 @@ Bmp390::Error Bmp390::configure(const Config& config)
     return toError(result);
 }
 
+bool Bmp390::fetchStatus(bmp3_status& status)
+{
+    return mInitialized && (bmp3_get_status(&status, &mDev) == BMP3_OK);
+}
+
+bool Bmp390::isDataReady(const bmp3_status& status)
+{
+    return (status.intr.drdy == BMP3_ENABLE) ||
+           (status.sensor.drdy_press == BMP3_ENABLE) ||
+           (status.sensor.drdy_temp == BMP3_ENABLE);
+}
+
+bool Bmp390::hasUnreadData()
+{
+    bmp3_status status{};
+    if (!fetchStatus(status)) {
+        return false;
+    }
+    return isDataReady(status);
+}
+
 std::optional<Bmp390::SensorData> Bmp390::readData()
 {
-    if (!mInitialized) {
-        return std::nullopt;
-    }
-
     bmp3_status status{};
-    if (bmp3_get_status(&status, &mDev) != BMP3_OK) {
-        return std::nullopt;
-    }
-
-    // В normal mode ждём готовности хотя бы одного канала
-    if ((status.intr.drdy != BMP3_ENABLE) &&
-        (status.sensor.drdy_press != BMP3_ENABLE) &&
-        (status.sensor.drdy_temp != BMP3_ENABLE)) {
+    if (!fetchStatus(status) || !isDataReady(status)) {
         return std::nullopt;
     }
 
