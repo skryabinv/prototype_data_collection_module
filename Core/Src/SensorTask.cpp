@@ -10,7 +10,8 @@ void StartSensorTask(void* argument)
 {
     (void)argument;
 
-    // Оба датчика на одной шине I2C1, разные 7-bit адреса: 0x76 и 0x30
+    // TODO: проверить на железе I2C-адреса:
+    // BMP390: 0x76 (SDO→GND) или 0x77 (SDO→VDD); MMC5983MA: обычно 0x30.
     Bmp390 bmp390(hi2c1, BMP3_ADDR_I2C_PRIM);
     Mmc5983ma mmc5983ma(hi2c1, 0x30);
 
@@ -54,32 +55,24 @@ void StartSensorTask(void* argument)
     printf("Sensors ready (BMP390 + MMC5983MA on I2C1)\n");
 
     for (;;) {
-        bool gotData = false;
-
-        // Датчики независимы: не вкладываем один в другой
         if (bmp390.hasUnreadData()) {
             if (const auto data = bmp390.readData(); data.has_value()) {
                 printf("BMP390  T=%.2f C  P=%.2f Pa\n", data->temperature, data->pressure);
-                gotData = true;
             } else {
                 printf("BMP390 read failed\n");
             }
         }
 
         if (mmc5983ma.hasUnreadData()) {
-            const auto data = mmc5983ma.readData();
-            if (data.valid) {
+            if (const auto data = mmc5983ma.readData(); data.has_value()) {
                 printf("MMC5983 X=%.3f Y=%.3f Z=%.3f G  T=%.1f C\n",
-                       data.x, data.y, data.z, data.temperature);
-                gotData = true;
+                       data->x, data->y, data->z, data->temperature);
             } else {
                 printf("MMC5983MA read failed\n");
             }
         }
 
-        // Нет новых данных ни с одного датчика — yield на 1 тик (1 мс)
-        if (!gotData) {
-            osDelay(1);
-        }
+        // Всегда отдаём CPU на 1 тик (configTICK_RATE_HZ = 1000)
+        osDelay(1);
     }
 }

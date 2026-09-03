@@ -8,6 +8,8 @@ constexpr uint8_t REG_CTRL1 = 0x0A;
 constexpr uint8_t REG_PROD_ID = 0x2F;
 
 constexpr uint8_t STATUS_MEAS_M_DONE = 0x01;
+constexpr uint8_t STATUS_MEAS_T_DONE = 0x02;
+constexpr uint8_t STATUS_MEAS_DONE = STATUS_MEAS_M_DONE | STATUS_MEAS_T_DONE;
 
 constexpr uint8_t CTRL0_TM_M = 0x01;
 constexpr uint8_t CTRL0_TM_T = 0x02;
@@ -91,6 +93,17 @@ Mmc5983ma::Error Mmc5983ma::startMeasurement()
     return Error::Ok;
 }
 
+bool Mmc5983ma::fetchStatus(uint8_t& status)
+{
+    return mInitialized && (readRegister(REG_STATUS, &status) == Error::Ok);
+}
+
+bool Mmc5983ma::isDataReady(uint8_t status)
+{
+    // Ждём оба флага: иначе температура может быть от прошлого измерения
+    return (status & STATUS_MEAS_DONE) == STATUS_MEAS_DONE;
+}
+
 bool Mmc5983ma::hasUnreadData()
 {
     if (!mInitialized) {
@@ -103,18 +116,22 @@ bool Mmc5983ma::hasUnreadData()
     }
 
     uint8_t status = 0;
-    if (readRegister(REG_STATUS, &status) != Error::Ok) {
+    if (!fetchStatus(status)) {
         return false;
     }
-
-    return (status & STATUS_MEAS_M_DONE) != 0U;
+    return isDataReady(status);
 }
 
-Mmc5983ma::SensorData Mmc5983ma::readData()
+std::optional<Mmc5983ma::SensorData> Mmc5983ma::readData()
 {
-    SensorData result{};
-    if (!mInitialized || !hasUnreadData()) {
-        return result;
+    if (!mInitialized || !mMeasurementPending) {
+        return std::nullopt;
+    }
+
+    // Один раз читаем STATUS здесь (без повторного hasUnreadData)
+    uint8_t status = 0;
+    if (!fetchStatus(status) || !isDataReady(status)) {
+        return std::nullopt;
     }
 
     uint8_t buf[8] = {};
@@ -128,13 +145,10 @@ Mmc5983ma::SensorData Mmc5983ma::readData()
                          kI2cTimeoutMs);
     if (hal_status != HAL_OK) {
         mMeasurementPending = false;
-        return result;
+        return std::nullopt;
     }
 
-    // Чтение STATUS сбрасывает Meas_M_Done
-    uint8_t status = 0;
-    (void)readRegister(REG_STATUS, &status);
-
+    // Чтение 0x00..0x07 сбрасывает Meas_M_Done / Meas_T_Done
     const uint32_t x_raw = (static_cast<uint32_t>(buf[0]) << 10) |
                            (static_cast<uint32_t>(buf[1]) << 2) |
                            ((buf[6] >> 6) & 0x03U);
@@ -146,15 +160,16 @@ Mmc5983ma::SensorData Mmc5983ma::readData()
                            ((buf[6] >> 2) & 0x03U);
     const uint8_t t_raw = buf[7];
 
-    result.x = static_cast<float>(static_cast<int32_t>(x_raw) - 131072) / 16384.0f;
-    result.y = static_cast<float>(static_cast<int32_t>(y_raw) - 131072) / 16384.0f;
-    result.z = static_cast<float>(static_cast<int32_t>(z_raw) - 131072) / 16384.0f;
-    result.temperature = -75.0f + (static_cast<float>(t_raw) * 0.8f);
-    result.valid = true;
+    SensorData data{
+        .x = static_cast<float>(static_cast<int32_t>(x_raw) - 131072) / 16384.0f,
+        .y = static_cast<float>(static_cast<int32_t>(y_raw) - 131072) / 16384.0f,
+        .z = static_cast<float>(static_cast<int32_t>(z_raw) - 131072) / 16384.0f,
+        .temperature = -75.0f + (static_cast<float>(t_raw) * 0.8f),
+    };
 
     mMeasurementPending = false;
     (void)startMeasurement();
-    return result;
+    return data;
 }
 
 Mmc5983ma::Error Mmc5983ma::performSetReset()

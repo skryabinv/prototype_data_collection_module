@@ -11,6 +11,7 @@ extern "C" {
 #ifdef __cplusplus
 
 #include <cstdint>
+#include <optional>
 
 class Mmc5983ma {
 public:
@@ -26,9 +27,10 @@ public:
         float y = 0.0f;           // Gauss
         float z = 0.0f;           // Gauss
         float temperature = 0.0f; // Celsius
-        bool valid = false;
     };
 
+    // TODO: расширить Config при необходимости — continuous mode / Cmm_freq (CTRL2),
+    // период Periodic SET/RESET, выбор one-shot vs continuous, раздельный enable temp/mag.
     struct Config {
         bool autoSetReset = true;
         // 0x00 = 100 Hz (8 ms), 0x03 = 800 Hz (0.5 ms)
@@ -49,11 +51,12 @@ public:
     /// Запуск one-shot измерения (неблокирующий).
     [[nodiscard]] Error startMeasurement();
 
-    /// Meas_M_Done в STATUS — есть непрочитанный sample.
+    /// Meas_M_Done и Meas_T_Done в STATUS — есть непрочитанный sample.
     [[nodiscard]] bool hasUnreadData();
 
-    /// Чтение sample; после успеха сразу стартует следующее измерение.
-    [[nodiscard]] SensorData readData();
+    /// Чтение sample (вызывать после hasUnreadData() == true).
+    /// После успеха стартует следующее измерение.
+    [[nodiscard]] std::optional<SensorData> readData();
 
     [[nodiscard]] bool isInitialized() const { return mInitialized; }
 
@@ -69,6 +72,8 @@ private:
     Error writeRegister(std::uint8_t reg, std::uint8_t value);
     Error readRegister(std::uint8_t reg, std::uint8_t* value);
     Error performSetReset();
+    [[nodiscard]] bool fetchStatus(std::uint8_t& status);
+    [[nodiscard]] static bool isDataReady(std::uint8_t status);
 };
 
 #endif // __cplusplus
