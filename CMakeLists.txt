@@ -52,6 +52,7 @@ set(BMP3_SOURCES
 set(USER_SOURCES
     Core/Src/SensorTask.cpp
     Core/Src/Bmp390.cpp
+    Core/Src/Mmc5983ma.cpp
 )    
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE

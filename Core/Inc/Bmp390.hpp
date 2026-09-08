@@ -41,6 +41,8 @@ public:
         uint8_t opMode = BMP3_MODE_NORMAL;
         bool enablePressure = true;
         bool enableTemperature = true;
+
+        static Config defaultNormal();
     };
 
     // BMP3_ADDR_I2C_PRIM = 0x76, BMP3_ADDR_I2C_SEC = 0x77
