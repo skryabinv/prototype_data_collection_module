@@ -6,6 +6,18 @@
 
 extern I2C_HandleTypeDef hi2c1;
 
+namespace {
+
+[[noreturn]] void fatalError(const char* message)
+{
+    printf("%s\n", message);
+    for (;;) {
+        osDelay(1000);
+    }
+}
+
+} // namespace
+
 void StartSensorTask(void* argument)
 {
     (void)argument;
@@ -16,40 +28,20 @@ void StartSensorTask(void* argument)
     Mmc5983ma mmc5983ma(hi2c1, 0x30);
 
     if (const auto err = bmp390.init(); err != Bmp390::Error::Ok) {
-        printf("BMP390 init failed: %d\n", static_cast<int>(err));
-        for (;;) {
-            osDelay(1000);
-        }
+        fatalError("BMP390 init failed");
     }
-    if (const auto err = mmc5983ma.init(); err != Mmc5983ma::Error::Ok) {
-        printf("MMC5983MA init failed: %d\n", static_cast<int>(err));
-        for (;;) {
-            osDelay(1000);
-        }
+    if (const auto err = mmc5983ma.init(); err != Mmc5983ma::Status::Ok) {
+        fatalError("MMC5983MA init failed");
     }
 
-    Bmp390::Config bmpConfig{};
-    bmpConfig.pressOversampling = BMP3_OVERSAMPLING_16X;
-    bmpConfig.tempOversampling = BMP3_OVERSAMPLING_2X;
-    bmpConfig.iirFilter = BMP3_IIR_FILTER_COEFF_3;
-    bmpConfig.odr = BMP3_ODR_25_HZ;
-    bmpConfig.opMode = BMP3_MODE_NORMAL;
-
-    Mmc5983ma::Config mmcConfig{};
-    mmcConfig.autoSetReset = true;
-    mmcConfig.bandWidth = 0x00; // ~100 Hz measurement time
-
-    if (const auto err = bmp390.configure(bmpConfig); err != Bmp390::Error::Ok) {
-        printf("BMP390 configure failed: %d\n", static_cast<int>(err));
-        for (;;) {
-            osDelay(1000);
-        }
+    if (const auto err = bmp390.configure(Bmp390::Config::defaultNormal()); err != Bmp390::Error::Ok) {
+        fatalError("BMP390 configure failed");
     }
-    if (const auto err = mmc5983ma.configure(mmcConfig); err != Mmc5983ma::Error::Ok) {
-        printf("MMC5983MA configure failed: %d\n", static_cast<int>(err));
-        for (;;) {
-            osDelay(1000);
-        }
+    if (const auto err = mmc5983ma.configure(Mmc5983ma::Config::defaultConfig()); err != Mmc5983ma::Status::Ok) {
+        fatalError("MMC5983MA configure failed");
+    }
+    if (const auto err = mmc5983ma.startMeasurement(); err != Mmc5983ma::Status::Ok) {
+        fatalError("MMC5983MA start measurement failed");
     }
 
     printf("Sensors ready (BMP390 + MMC5983MA on I2C1)\n");
@@ -67,12 +59,14 @@ void StartSensorTask(void* argument)
             if (const auto data = mmc5983ma.readData(); data.has_value()) {
                 printf("MMC5983 X=%.3f Y=%.3f Z=%.3f G  T=%.1f C\n",
                        data->x, data->y, data->z, data->temperature);
+                if (const auto err = mmc5983ma.startMeasurement(); err != Mmc5983ma::Status::Ok) {
+                    printf("MMC5983MA start measurement failed\n");
+                }
             } else {
                 printf("MMC5983MA read failed\n");
             }
         }
 
-        // Всегда отдаём CPU на 1 тик (configTICK_RATE_HZ = 1000)
         osDelay(1);
     }
 }

@@ -144,3 +144,14 @@ void Bmp390::delayUs(uint32_t period, void* /*intf_ptr*/)
         HAL_Delay(ms);
     }
 }
+
+Bmp390::Config Bmp390::Config::defaultNormal()
+{
+    Config config{};
+    config.pressOversampling = BMP3_OVERSAMPLING_16X;
+    config.tempOversampling = BMP3_OVERSAMPLING_2X;
+    config.iirFilter = BMP3_IIR_FILTER_COEFF_3;
+    config.odr = BMP3_ODR_25_HZ;
+    config.opMode = BMP3_MODE_NORMAL;
+    return config;
+}

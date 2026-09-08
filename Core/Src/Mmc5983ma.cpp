@@ -19,7 +19,42 @@ constexpr uint8_t CTRL0_RESET = 0x10;
 constexpr uint8_t CTRL0_AUTO_SR_EN = 0x20;
 
 constexpr uint8_t PROD_ID_VALUE = 0x30;
+
+// Datasheet: 18-bit output, zero field = 2^17 counts, sensitivity = 16384 counts/G
+constexpr uint32_t kMagNullOffsetCounts = 131072U;
+constexpr float kCountsPerGauss = 16384.0f;
+
+// Datasheet: T = -75 °C + 0.8 °C/LSB
+constexpr float kTempOffsetCelsius = -75.0f;
+constexpr float kTempLsbCelsius = 0.8f;
+
+/// Собирает 18-битное значение оси из OUT_MSB, OUT_LSB и 2 бит в XOUT[6].
+uint32_t parseAxisRaw(uint8_t out_msb, uint8_t out_lsb, uint8_t packed_lsb, uint8_t lsb_shift)
+{
+    return (static_cast<uint32_t>(out_msb) << 10) |
+           (static_cast<uint32_t>(out_lsb) << 2) |
+           ((packed_lsb >> lsb_shift) & 0x03U);
+}
+
+float rawMagToGauss(uint32_t raw_counts)
+{
+    const int32_t signed_counts = static_cast<int32_t>(raw_counts) - static_cast<int32_t>(kMagNullOffsetCounts);
+    return static_cast<float>(signed_counts) / kCountsPerGauss;
+}
+
+float rawTempToCelsius(uint8_t raw_temp)
+{
+    return kTempOffsetCelsius + static_cast<float>(raw_temp) * kTempLsbCelsius;
+}
 } // namespace
+
+Mmc5983ma::Config Mmc5983ma::Config::defaultConfig()
+{
+    Config config{};
+    config.autoSetReset = true;
+    config.bandWidth = 0x00; // ~100 Hz measurement time
+    return config;
+}
 
 Mmc5983ma::Mmc5983ma(I2C_HandleTypeDef& i2c, std::uint8_t address)
     : mI2c(i2c)
@@ -27,26 +62,25 @@ Mmc5983ma::Mmc5983ma(I2C_HandleTypeDef& i2c, std::uint8_t address)
 {
 }
 
-Mmc5983ma::Error Mmc5983ma::init()
+Mmc5983ma::Status Mmc5983ma::init()
 {
     uint8_t prod_id = 0;
-    if (readRegister(REG_PROD_ID, &prod_id) != Error::Ok || prod_id != PROD_ID_VALUE) {
-        return Error::EDevNotFound;
+    if (readRegister(REG_PROD_ID, &prod_id) != Status::Ok || prod_id != PROD_ID_VALUE) {
+        return Status::EDevNotFound;
     }
 
-    if (performSetReset() != Error::Ok) {
-        return Error::ECommFail;
+    if (performSetReset() != Status::Ok) {
+        return Status::ECommFail;
     }
 
     mInitialized = true;
-    mMeasurementPending = false;
-    return Error::Ok;
+    return Status::Ok;
 }
 
-Mmc5983ma::Error Mmc5983ma::configure(const Config& config)
+Mmc5983ma::Status Mmc5983ma::configure(const Config& config)
 {
     if (!mInitialized) {
-        return Error::ENotInitialized;
+        return Status::ENotInitialized;
     }
 
     mConfig = config;
@@ -58,60 +92,48 @@ Mmc5983ma::Error Mmc5983ma::configure(const Config& config)
         ctrl0_val |= CTRL0_AUTO_SR_EN;
     }
 
-    if (writeRegister(REG_CTRL0, ctrl0_val) != Error::Ok) {
-        return Error::ECommFail;
+    if (writeRegister(REG_CTRL0, ctrl0_val) != Status::Ok) {
+        return Status::ECommFail;
     }
-    if (writeRegister(REG_CTRL1, ctrl1_val) != Error::Ok) {
-        return Error::ECommFail;
+    if (writeRegister(REG_CTRL1, ctrl1_val) != Status::Ok) {
+        return Status::ECommFail;
     }
 
-    mMeasurementPending = false;
-    return startMeasurement();
+    return Status::Ok;
 }
 
-Mmc5983ma::Error Mmc5983ma::startMeasurement()
+Mmc5983ma::Status Mmc5983ma::startMeasurement()
 {
     if (!mInitialized) {
-        return Error::ENotInitialized;
-    }
-    if (mMeasurementPending) {
-        return Error::Ok;
+        return Status::ENotInitialized;
     }
 
     uint8_t ctrl0 = 0;
-    if (readRegister(REG_CTRL0, &ctrl0) != Error::Ok) {
-        return Error::ECommFail;
+    if (readRegister(REG_CTRL0, &ctrl0) != Status::Ok) {
+        return Status::ECommFail;
     }
 
-    // Магнит + температура, one-shot
     ctrl0 |= static_cast<uint8_t>(CTRL0_TM_M | CTRL0_TM_T);
-    if (writeRegister(REG_CTRL0, ctrl0) != Error::Ok) {
-        return Error::ECommFail;
+    if (writeRegister(REG_CTRL0, ctrl0) != Status::Ok) {
+        return Status::ECommFail;
     }
 
-    mMeasurementPending = true;
-    return Error::Ok;
+    return Status::Ok;
 }
 
 bool Mmc5983ma::fetchStatus(uint8_t& status)
 {
-    return mInitialized && (readRegister(REG_STATUS, &status) == Error::Ok);
+    return mInitialized && (readRegister(REG_STATUS, &status) == Status::Ok);
 }
 
 bool Mmc5983ma::isDataReady(uint8_t status)
 {
-    // Ждём оба флага: иначе температура может быть от прошлого измерения
     return (status & STATUS_MEAS_DONE) == STATUS_MEAS_DONE;
 }
 
 bool Mmc5983ma::hasUnreadData()
 {
     if (!mInitialized) {
-        return false;
-    }
-
-    if (!mMeasurementPending) {
-        (void)startMeasurement();
         return false;
     }
 
@@ -124,11 +146,10 @@ bool Mmc5983ma::hasUnreadData()
 
 std::optional<Mmc5983ma::SensorData> Mmc5983ma::readData()
 {
-    if (!mInitialized || !mMeasurementPending) {
+    if (!mInitialized) {
         return std::nullopt;
     }
 
-    // Один раз читаем STATUS здесь (без повторного hasUnreadData)
     uint8_t status = 0;
     if (!fetchStatus(status) || !isDataReady(status)) {
         return std::nullopt;
@@ -144,50 +165,37 @@ std::optional<Mmc5983ma::SensorData> Mmc5983ma::readData()
                          sizeof(buf),
                          kI2cTimeoutMs);
     if (hal_status != HAL_OK) {
-        mMeasurementPending = false;
         return std::nullopt;
     }
 
-    // Чтение 0x00..0x07 сбрасывает Meas_M_Done / Meas_T_Done
-    const uint32_t x_raw = (static_cast<uint32_t>(buf[0]) << 10) |
-                           (static_cast<uint32_t>(buf[1]) << 2) |
-                           ((buf[6] >> 6) & 0x03U);
-    const uint32_t y_raw = (static_cast<uint32_t>(buf[2]) << 10) |
-                           (static_cast<uint32_t>(buf[3]) << 2) |
-                           ((buf[6] >> 4) & 0x03U);
-    const uint32_t z_raw = (static_cast<uint32_t>(buf[4]) << 10) |
-                           (static_cast<uint32_t>(buf[5]) << 2) |
-                           ((buf[6] >> 2) & 0x03U);
-    const uint8_t t_raw = buf[7];
+    const uint32_t x_raw = parseAxisRaw(buf[0], buf[1], buf[6], 6);
+    const uint32_t y_raw = parseAxisRaw(buf[2], buf[3], buf[6], 4);
+    const uint32_t z_raw = parseAxisRaw(buf[4], buf[5], buf[6], 2);
 
-    SensorData data{
-        .x = static_cast<float>(static_cast<int32_t>(x_raw) - 131072) / 16384.0f,
-        .y = static_cast<float>(static_cast<int32_t>(y_raw) - 131072) / 16384.0f,
-        .z = static_cast<float>(static_cast<int32_t>(z_raw) - 131072) / 16384.0f,
-        .temperature = -75.0f + (static_cast<float>(t_raw) * 0.8f),
+    return SensorData{
+        .x = rawMagToGauss(x_raw),
+        .y = rawMagToGauss(y_raw),
+        .z = rawMagToGauss(z_raw),
+        .temperature = rawTempToCelsius(buf[7]),
     };
-
-    mMeasurementPending = false;
-    (void)startMeasurement();
-    return data;
 }
 
-Mmc5983ma::Error Mmc5983ma::performSetReset()
+Mmc5983ma::Status Mmc5983ma::performSetReset()
 {
-    if (writeRegister(REG_CTRL0, CTRL0_SET) != Error::Ok) {
-        return Error::ECommFail;
+    if (writeRegister(REG_CTRL0, CTRL0_SET) != Status::Ok) {
+        return Status::ECommFail;
     }
     HAL_Delay(1);
 
-    if (writeRegister(REG_CTRL0, CTRL0_RESET) != Error::Ok) {
-        return Error::ECommFail;
+    if (writeRegister(REG_CTRL0, CTRL0_RESET) != Status::Ok) {
+        return Status::ECommFail;
     }
     HAL_Delay(1);
 
-    return Error::Ok;
+    return Status::Ok;
 }
 
-Mmc5983ma::Error Mmc5983ma::writeRegister(uint8_t reg, uint8_t value)
+Mmc5983ma::Status Mmc5983ma::writeRegister(uint8_t reg, uint8_t value)
 {
     const HAL_StatusTypeDef status =
         HAL_I2C_Mem_Write(&mI2c,
@@ -197,10 +205,10 @@ Mmc5983ma::Error Mmc5983ma::writeRegister(uint8_t reg, uint8_t value)
                           &value,
                           1,
                           kI2cTimeoutMs);
-    return (status == HAL_OK) ? Error::Ok : Error::ECommFail;
+    return (status == HAL_OK) ? Status::Ok : Status::ECommFail;
 }
 
-Mmc5983ma::Error Mmc5983ma::readRegister(uint8_t reg, uint8_t* value)
+Mmc5983ma::Status Mmc5983ma::readRegister(uint8_t reg, uint8_t* value)
 {
     const HAL_StatusTypeDef status =
         HAL_I2C_Mem_Read(&mI2c,
@@ -210,5 +218,5 @@ Mmc5983ma::Error Mmc5983ma::readRegister(uint8_t reg, uint8_t* value)
                          value,
                          1,
                          kI2cTimeoutMs);
-    return (status == HAL_OK) ? Error::Ok : Error::ECommFail;
+    return (status == HAL_OK) ? Status::Ok : Status::ECommFail;
 }
