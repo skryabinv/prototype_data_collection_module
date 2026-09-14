@@ -1,0 +1,10 @@
+CompileFlags:
+  Add: [-std=c++20, -mcpu=cortex-m7, -mfpu=fpv5-d16, -mfloat-abi=hard]
+CompilationDatabase: build/Debug
+
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
+
+Format:
+  Style: file
