@@ -28,7 +28,7 @@ set(CMAKE_PROJECT_NAME WeAct_H7_Sensors)
 # Include toolchain file
 include("cmake/gcc-arm-none-eabi.cmake")
 
-# Enable compile command to ease indexing with e.g. clangd
+# Enable compile command to ease indexing with e.g. clangd (см. build/Debug/compile_commands.json)
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 
 # Core project settings
