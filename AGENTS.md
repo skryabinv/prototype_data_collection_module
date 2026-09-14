@@ -31,8 +31,9 @@ cmake --preset Debug   # если настроены presets
 cmake --build build/Debug
 ```
 
-- `CMAKE_EXPORT_COMPILE_COMMANDS` включён — для **clangd** каталог: `build/Debug`.
-- Флаги C++ уже заданы: `-fno-exceptions -fno-rtti -fno-threadsafe-statics`, `-Wall -Wextra -Wpedantic`.
+- `CMAKE_EXPORT_COMPILE_COMMANDS` включён — `build/Debug/compile_commands.json`.
+- **clangd:** расширение `llvm-vs-code-extensions.vscode-clangd`, аргумент `--query-driver=**/arm-none-eabi-*` (обязательно для `<cstdint>` и libstdc++). После `cmake` — Reload Window.
+- Флаги C++ уже заданы: `-fno-exceptions -fno-rtti -fno-threadsafe-statics`, `-Wall -Wextra -Wshadow -Wpedantic`.
 
 ## Жёсткие запреты (embedded)
 

@@ -14,8 +14,13 @@
   },
   "clangd.arguments": [
     "--compile-commands-dir=${workspaceFolder}/build/Debug",
-    "--header-insertion=iwyu"
+    "--query-driver=**/arm-none-eabi-*",
+    "--header-insertion=never"
   ],
+  "clangd.checkUpdates": false,
   "C_Cpp.formatting": "disabled",
-  "C_Cpp.intelliSenseEngine": "disabled"
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "files.exclude": {
+    "**/.git": true
+  }
 }

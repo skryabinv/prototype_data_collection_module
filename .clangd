@@ -1,6 +1,7 @@
+# База: compile_commands.json из CMake (build/Debug).
+# Не добавляйте CompileFlags.Add — иначе clangd теряет пути libstdc++ от arm-none-eabi-g++.
 CompileFlags:
-  Add: [-std=c++20, -mcpu=cortex-m7, -mfpu=fpv5-d16, -mfloat-abi=hard]
-CompilationDatabase: build/Debug
+  CompilationDatabase: build/Debug
 
 Diagnostics:
   UnusedIncludes: None
@@ -8,3 +9,38 @@ Diagnostics:
 
 Format:
   Style: file
+
+---
+# HAL, CMSIS, FreeRTOS — только для сборки, не для правок clangd.
+If:
+  PathMatch: .*(/|\\)(Drivers|Middlewares)(/|\\).*
+Diagnostics:
+  Suppress: '*'
+Index:
+  Background: Skip
+
+---
+# Vendor API датчика (Bosch bmp3) — не анализируем.
+If:
+  PathMatch: .*(/|\\)vendor(/|\\).*
+Diagnostics:
+  Suppress: '*'
+Index:
+  Background: Skip
+
+---
+# CubeMX C в Core/Src — правки только в USER CODE, диагностику clangd отключаем.
+If:
+  PathMatch: .*(/|\\)Core(/|\\)Src(/|\\).*\.c$
+Diagnostics:
+  Suppress: '*'
+Index:
+  Background: Skip
+
+---
+If:
+  PathMatch: .*startup_.*\.s$
+Diagnostics:
+  Suppress: '*'
+Index:
+  Background: Skip
