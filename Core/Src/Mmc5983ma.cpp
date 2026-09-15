@@ -1,15 +1,19 @@
 #include "Mmc5983ma.hpp"
 
+extern "C" {
+#include "stm32h7xx_hal.h"
+}
+
 namespace {
 constexpr uint8_t REG_XOUT0 = 0x00;
 constexpr uint8_t REG_STATUS = 0x08;
 constexpr uint8_t REG_CTRL0 = 0x09;
 constexpr uint8_t REG_CTRL1 = 0x0A;
+constexpr uint8_t REG_TEMP = 0x07;
 constexpr uint8_t REG_PROD_ID = 0x2F;
 
 constexpr uint8_t STATUS_MEAS_M_DONE = 0x01;
 constexpr uint8_t STATUS_MEAS_T_DONE = 0x02;
-constexpr uint8_t STATUS_MEAS_DONE = STATUS_MEAS_M_DONE | STATUS_MEAS_T_DONE;
 
 constexpr uint8_t CTRL0_TM_M = 0x01;
 constexpr uint8_t CTRL0_TM_T = 0x02;
@@ -20,15 +24,11 @@ constexpr uint8_t CTRL0_AUTO_SR_EN = 0x20;
 
 constexpr uint8_t PROD_ID_VALUE = 0x30;
 
-// Datasheet: 18-bit output, zero field = 2^17 counts, sensitivity = 16384 counts/G
 constexpr uint32_t kMagNullOffsetCounts = 131072U;
 constexpr float kCountsPerGauss = 16384.0f;
-
-// Datasheet: T = -75 °C + 0.8 °C/LSB
 constexpr float kTempOffsetCelsius = -75.0f;
 constexpr float kTempLsbCelsius = 0.8f;
 
-/// Собирает 18-битное значение оси из OUT_MSB, OUT_LSB и 2 бит в XOUT[6].
 uint32_t parseAxisRaw(uint8_t out_msb, uint8_t out_lsb, uint8_t packed_lsb, uint8_t lsb_shift)
 {
     return (static_cast<uint32_t>(out_msb) << 10) |
@@ -38,7 +38,8 @@ uint32_t parseAxisRaw(uint8_t out_msb, uint8_t out_lsb, uint8_t packed_lsb, uint
 
 float rawMagToGauss(uint32_t raw_counts)
 {
-    const int32_t signed_counts = static_cast<int32_t>(raw_counts) - static_cast<int32_t>(kMagNullOffsetCounts);
+    const int32_t signed_counts =
+        static_cast<int32_t>(raw_counts) - static_cast<int32_t>(kMagNullOffsetCounts);
     return static_cast<float>(signed_counts) / kCountsPerGauss;
 }
 
@@ -46,13 +47,34 @@ float rawTempToCelsius(uint8_t raw_temp)
 {
     return kTempOffsetCelsius + static_cast<float>(raw_temp) * kTempLsbCelsius;
 }
+
+Mmc5983ma::MagVector fieldFromSetReset(const Mmc5983ma::MagVector& after_set,
+                                       const Mmc5983ma::MagVector& after_reset)
+{
+    return Mmc5983ma::MagVector{
+        .x = (after_set.x - after_reset.x) * 0.5f,
+        .y = (after_set.y - after_reset.y) * 0.5f,
+        .z = (after_set.z - after_reset.z) * 0.5f,
+    };
+}
+
+Mmc5983ma::MagVector offsetFromSetReset(const Mmc5983ma::MagVector& after_set,
+                                        const Mmc5983ma::MagVector& after_reset)
+{
+    return Mmc5983ma::MagVector{
+        .x = (after_set.x + after_reset.x) * 0.5f,
+        .y = (after_set.y + after_reset.y) * 0.5f,
+        .z = (after_set.z + after_reset.z) * 0.5f,
+    };
+}
 } // namespace
 
 Mmc5983ma::Config Mmc5983ma::Config::defaultConfig()
 {
     Config config{};
-    config.autoSetReset = true;
-    config.bandWidth = 0x00; // ~100 Hz measurement time
+    config.enableSetResetMeasurement = true;
+    config.autoSetReset = false;
+    config.bandWidth = 0x00;
     return config;
 }
 
@@ -74,6 +96,7 @@ Mmc5983ma::Status Mmc5983ma::init()
     }
 
     mInitialized = true;
+    mState = CycleState::Idle;
     return Status::Ok;
 }
 
@@ -88,9 +111,10 @@ Mmc5983ma::Status Mmc5983ma::configure(const Config& config)
     const uint8_t ctrl1_val = static_cast<uint8_t>(config.bandWidth & 0x03U);
 
     uint8_t ctrl0_val = CTRL0_INT_MEAS_DONE_EN;
-    if (config.autoSetReset) {
+    if (config.autoSetReset && !config.enableSetResetMeasurement) {
         ctrl0_val |= CTRL0_AUTO_SR_EN;
     }
+    mCtrl0Base = ctrl0_val;
 
     if (writeRegister(REG_CTRL0, ctrl0_val) != Status::Ok) {
         return Status::ECommFail;
@@ -99,6 +123,7 @@ Mmc5983ma::Status Mmc5983ma::configure(const Config& config)
         return Status::ECommFail;
     }
 
+    mState = CycleState::Idle;
     return Status::Ok;
 }
 
@@ -107,28 +132,20 @@ Mmc5983ma::Status Mmc5983ma::startMeasurement()
     if (!mInitialized) {
         return Status::ENotInitialized;
     }
+    if (!mConfig.enableSetResetMeasurement) {
+        return Status::ECommFail;
+    }
+    if (mState != CycleState::Idle) {
+        return Status::EBusy;
+    }
 
-    uint8_t ctrl0 = 0;
-    if (readRegister(REG_CTRL0, &ctrl0) != Status::Ok) {
+    if (issueSetPulse() != Status::Ok) {
         return Status::ECommFail;
     }
 
-    ctrl0 |= static_cast<uint8_t>(CTRL0_TM_M | CTRL0_TM_T);
-    if (writeRegister(REG_CTRL0, ctrl0) != Status::Ok) {
-        return Status::ECommFail;
-    }
-
+    mState = CycleState::WaitAfterSet;
+    mStateDeadlineMs = HAL_GetTick() + kCoilSettleMs;
     return Status::Ok;
-}
-
-bool Mmc5983ma::fetchStatus(uint8_t& status)
-{
-    return mInitialized && (readRegister(REG_STATUS, &status) == Status::Ok);
-}
-
-bool Mmc5983ma::isDataReady(uint8_t status)
-{
-    return (status & STATUS_MEAS_DONE) == STATUS_MEAS_DONE;
 }
 
 bool Mmc5983ma::hasUnreadData()
@@ -136,26 +153,185 @@ bool Mmc5983ma::hasUnreadData()
     if (!mInitialized) {
         return false;
     }
-
-    uint8_t status = 0;
-    if (!fetchStatus(status)) {
-        return false;
-    }
-    return isDataReady(status);
+    poll();
+    return mState == CycleState::Ready;
 }
 
 std::optional<Mmc5983ma::SensorData> Mmc5983ma::readData()
 {
-    if (!mInitialized) {
+    if (!mInitialized || mState != CycleState::Ready) {
         return std::nullopt;
     }
 
-    uint8_t status = 0;
-    if (!fetchStatus(status) || !isDataReady(status)) {
-        return std::nullopt;
+    const SensorData data{
+        .field = fieldFromSetReset(mResultAfterSet, mResultAfterReset),
+        .offset = mLastOffset,
+        .temperature = mLastTemperature,
+    };
+
+    mState = CycleState::Idle;
+    return data;
+}
+
+void Mmc5983ma::poll()
+{
+    if (mState == CycleState::Idle || mState == CycleState::Ready) {
+        return;
     }
 
-    uint8_t buf[8] = {};
+    const uint32_t now = HAL_GetTick();
+
+    switch (mState) {
+    case CycleState::WaitAfterSet:
+        if (now < mStateDeadlineMs) {
+            return;
+        }
+        if (startMagMeasurement() != Status::Ok) {
+            mState = CycleState::Idle;
+            return;
+        }
+        mMagWaitStartMs = now;
+        mState = CycleState::WaitMagAfterSet;
+        return;
+
+    case CycleState::WaitMagAfterSet: {
+        uint8_t status = 0;
+        if (!fetchStatus(status)) {
+            return;
+        }
+        if (!isMagReady(status)) {
+            if ((now - mMagWaitStartMs) > kMeasDoneTimeoutMs) {
+                mState = CycleState::Idle;
+            }
+            return;
+        }
+        const auto sample = readMagGauss();
+        if (!sample.has_value()) {
+            mState = CycleState::Idle;
+            return;
+        }
+        mResultAfterSet = *sample;
+        if (issueResetPulse() != Status::Ok) {
+            mState = CycleState::Idle;
+            return;
+        }
+        mStateDeadlineMs = now + kCoilSettleMs;
+        mState = CycleState::WaitAfterReset;
+        return;
+    }
+
+    case CycleState::WaitAfterReset:
+        if (now < mStateDeadlineMs) {
+            return;
+        }
+        if (startMagMeasurement() != Status::Ok) {
+            mState = CycleState::Idle;
+            return;
+        }
+        mMagWaitStartMs = now;
+        mState = CycleState::WaitMagAfterReset;
+        return;
+
+    case CycleState::WaitMagAfterReset: {
+        uint8_t status = 0;
+        if (!fetchStatus(status)) {
+            return;
+        }
+        if (!isMagReady(status)) {
+            if ((now - mMagWaitStartMs) > kMeasDoneTimeoutMs) {
+                mState = CycleState::Idle;
+            }
+            return;
+        }
+        const auto sample = readMagGauss();
+        if (!sample.has_value()) {
+            mState = CycleState::Idle;
+            return;
+        }
+        mResultAfterReset = *sample;
+        mLastOffset = offsetFromSetReset(mResultAfterSet, mResultAfterReset);
+
+        if (startTempMeasurement() != Status::Ok) {
+            mLastTemperature = 0.0f;
+            mState = CycleState::Ready;
+            return;
+        }
+        mMagWaitStartMs = now;
+        mState = CycleState::WaitTemperature;
+        return;
+    }
+
+    case CycleState::WaitTemperature: {
+        uint8_t status = 0;
+        if (!fetchStatus(status)) {
+            return;
+        }
+        if (!isTempReady(status)) {
+            if ((now - mMagWaitStartMs) > kMeasDoneTimeoutMs) {
+                mLastTemperature = 0.0f;
+                mState = CycleState::Ready;
+            }
+            return;
+        }
+        uint8_t raw_temp = 0;
+        if (readRegister(REG_TEMP, &raw_temp) != Status::Ok) {
+            mLastTemperature = 0.0f;
+        } else {
+            mLastTemperature = rawTempToCelsius(raw_temp);
+        }
+        mState = CycleState::Ready;
+        return;
+    }
+
+    default:
+        return;
+    }
+}
+
+Mmc5983ma::Status Mmc5983ma::issueSetPulse()
+{
+    uint8_t ctrl0 = mCtrl0Base;
+    if (readRegister(REG_CTRL0, &ctrl0) != Status::Ok) {
+        return Status::ECommFail;
+    }
+    ctrl0 = static_cast<uint8_t>((ctrl0 & ~CTRL0_SET & ~CTRL0_RESET) | CTRL0_SET);
+    return writeRegister(REG_CTRL0, ctrl0);
+}
+
+Mmc5983ma::Status Mmc5983ma::issueResetPulse()
+{
+    uint8_t ctrl0 = mCtrl0Base;
+    if (readRegister(REG_CTRL0, &ctrl0) != Status::Ok) {
+        return Status::ECommFail;
+    }
+    ctrl0 = static_cast<uint8_t>((ctrl0 & ~CTRL0_SET & ~CTRL0_RESET) | CTRL0_RESET);
+    return writeRegister(REG_CTRL0, ctrl0);
+}
+
+Mmc5983ma::Status Mmc5983ma::startMagMeasurement()
+{
+    uint8_t ctrl0 = mCtrl0Base;
+    if (readRegister(REG_CTRL0, &ctrl0) != Status::Ok) {
+        return Status::ECommFail;
+    }
+    // Datasheet: TM_M и TM_T не могут быть 1 одновременно.
+    ctrl0 = static_cast<uint8_t>((ctrl0 & ~(CTRL0_TM_M | CTRL0_TM_T)) | CTRL0_TM_M);
+    return writeRegister(REG_CTRL0, ctrl0);
+}
+
+Mmc5983ma::Status Mmc5983ma::startTempMeasurement()
+{
+    uint8_t ctrl0 = mCtrl0Base;
+    if (readRegister(REG_CTRL0, &ctrl0) != Status::Ok) {
+        return Status::ECommFail;
+    }
+    ctrl0 = static_cast<uint8_t>((ctrl0 & ~(CTRL0_TM_M | CTRL0_TM_T)) | CTRL0_TM_T);
+    return writeRegister(REG_CTRL0, ctrl0);
+}
+
+std::optional<Mmc5983ma::MagVector> Mmc5983ma::readMagGauss()
+{
+    uint8_t buf[7] = {};
     const HAL_StatusTypeDef hal_status =
         HAL_I2C_Mem_Read(&mI2c,
                          static_cast<uint16_t>(mAddress << 1),
@@ -168,30 +344,38 @@ std::optional<Mmc5983ma::SensorData> Mmc5983ma::readData()
         return std::nullopt;
     }
 
-    const uint32_t x_raw = parseAxisRaw(buf[0], buf[1], buf[6], 6);
-    const uint32_t y_raw = parseAxisRaw(buf[2], buf[3], buf[6], 4);
-    const uint32_t z_raw = parseAxisRaw(buf[4], buf[5], buf[6], 2);
-
-    return SensorData{
-        .x = rawMagToGauss(x_raw),
-        .y = rawMagToGauss(y_raw),
-        .z = rawMagToGauss(z_raw),
-        .temperature = rawTempToCelsius(buf[7]),
+    return MagVector{
+        .x = rawMagToGauss(parseAxisRaw(buf[0], buf[1], buf[6], 6)),
+        .y = rawMagToGauss(parseAxisRaw(buf[2], buf[3], buf[6], 4)),
+        .z = rawMagToGauss(parseAxisRaw(buf[4], buf[5], buf[6], 2)),
     };
+}
+
+bool Mmc5983ma::fetchStatus(uint8_t& status)
+{
+    return mInitialized && (readRegister(REG_STATUS, &status) == Status::Ok);
+}
+
+bool Mmc5983ma::isMagReady(uint8_t status)
+{
+    return (status & STATUS_MEAS_M_DONE) != 0U;
+}
+
+bool Mmc5983ma::isTempReady(uint8_t status)
+{
+    return (status & STATUS_MEAS_T_DONE) != 0U;
 }
 
 Mmc5983ma::Status Mmc5983ma::performSetReset()
 {
-    if (writeRegister(REG_CTRL0, CTRL0_SET) != Status::Ok) {
+    if (issueSetPulse() != Status::Ok) {
         return Status::ECommFail;
     }
-    HAL_Delay(1);
-
-    if (writeRegister(REG_CTRL0, CTRL0_RESET) != Status::Ok) {
+    HAL_Delay(kCoilSettleMs);
+    if (issueResetPulse() != Status::Ok) {
         return Status::ECommFail;
     }
-    HAL_Delay(1);
-
+    HAL_Delay(kCoilSettleMs);
     return Status::Ok;
 }
 

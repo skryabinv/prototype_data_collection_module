@@ -22,8 +22,6 @@ void StartSensorTask(void* argument)
 {
     (void)argument;
 
-    // TODO: проверить на железе I2C-адреса:
-    // BMP390: 0x76 (SDO→GND) или 0x77 (SDO→VDD); MMC5983MA: обычно 0x30.
     Bmp390 bmp390(hi2c1, BMP3_ADDR_I2C_PRIM);
     Mmc5983ma mmc5983ma(hi2c1, 0x30);
 
@@ -37,14 +35,15 @@ void StartSensorTask(void* argument)
     if (const auto err = bmp390.configure(Bmp390::Config::defaultNormal()); err != Bmp390::Error::Ok) {
         fatalError("BMP390 configure failed");
     }
-    if (const auto err = mmc5983ma.configure(Mmc5983ma::Config::defaultConfig()); err != Mmc5983ma::Status::Ok) {
+    if (const auto err = mmc5983ma.configure(Mmc5983ma::Config::defaultConfig());
+        err != Mmc5983ma::Status::Ok) {
         fatalError("MMC5983MA configure failed");
     }
     if (const auto err = mmc5983ma.startMeasurement(); err != Mmc5983ma::Status::Ok) {
         fatalError("MMC5983MA start measurement failed");
     }
 
-    printf("Sensors ready (BMP390 + MMC5983MA on I2C1)\n");
+    printf("Sensors ready (BMP390 + MMC5983MA SET/RESET on I2C1)\n");
 
     for (;;) {
         if (bmp390.hasUnreadData()) {
@@ -57,13 +56,15 @@ void StartSensorTask(void* argument)
 
         if (mmc5983ma.hasUnreadData()) {
             if (const auto data = mmc5983ma.readData(); data.has_value()) {
-                printf("MMC5983 X=%.3f Y=%.3f Z=%.3f G  T=%.1f C\n",
-                       data->x, data->y, data->z, data->temperature);
-                if (const auto err = mmc5983ma.startMeasurement(); err != Mmc5983ma::Status::Ok) {
-                    printf("MMC5983MA start measurement failed\n");
-                }
+                printf("MMC5983 H: X=%.3f Y=%.3f Z=%.3f G  T=%.1f C\n",
+                       data->field.x, data->field.y, data->field.z, data->temperature);
+                printf("MMC5983 offset: X=%.3f Y=%.3f Z=%.3f G\n",
+                       data->offset.x, data->offset.y, data->offset.z);
             } else {
                 printf("MMC5983MA read failed\n");
+            }
+            if (const auto err = mmc5983ma.startMeasurement(); err != Mmc5983ma::Status::Ok) {
+                printf("MMC5983MA start measurement failed\n");
             }
         }
 

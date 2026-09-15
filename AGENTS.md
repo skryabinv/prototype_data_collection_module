@@ -77,8 +77,12 @@ cmake --build build/Debug
 
 - Одна шина `hi2c1`, несколько датчиков — последовательный доступ из задачи; при втором клиенте шины — мьютекс.
 - Цикл задачи: **не** фиксированный «опрос раз в N мс» вместо DRDY; при отсутствии данных — `osDelay(1)` (тик 1 ms).
-- MMC5983MA (one-shot): **`startMeasurement()` явно** из вызывающего кода после `readData()`, не побочный эффект в `hasUnreadData()` / `readData()`.
-- BMP390 (normal mode): данные по ODR, `hasUnreadData()` + `readData()`.
+- **MMC5983MA** (точный режим SET/RESET, `Config::enableSetResetMeasurement = true`, `autoSetReset = false`):
+  - Протокол в драйвере: SET → измерение mag → RESET → измерение mag → **H = (R1−R2)/2**, **Offset = (R1+R2)/2**, затем температура.
+  - API **неблокирующий**: `startMeasurement()` (только из `Idle`) → в цикле задачи `hasUnreadData()` (внутри `poll()` по состояниям) → `readData()` → снова `startMeasurement()`.
+  - `SensorData`: `field` (H), `offset`, `temperature`. Кэш offset: `lastOffset()`.
+  - Не вызывать `startMeasurement()` из `hasUnreadData()` / `readData()` — только из вызывающего кода (см. `SensorTask.cpp`).
+- **BMP390** (normal mode): данные по ODR, `hasUnreadData()` + `readData()`.
 
 ## CubeMX / отладочный вывод
 
