@@ -22,5 +22,8 @@
   "C_Cpp.intelliSenseEngine": "disabled",
   "files.exclude": {
     "**/.git": true
-  }
+  },
+  "cortex-debug.armToolchainPath": "C:/arm-toolchain/arm-gnu-toolchain-13.3.rel/bin",
+  "cortex-debug.openocdPath": "C:/arm-toolchain/xpack-openocd-0.12.0-3-win32-x64/xpack-openocd-0.12.0-3/bin/openocd.exe",
+  "cortex-debug.variableUseNaturalFormat": true
 }

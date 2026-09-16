@@ -55,6 +55,7 @@ set(USER_SOURCES
     Core/Src/SensorGpio.cpp
     Core/Src/Bmp390.cpp
     Core/Src/Mmc5983ma.cpp
+    Core/Src/UsbdStdout.c
 )    
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
@@ -86,3 +87,5 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 
     # Add user defined libraries
 )
+
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -Wl,-u,_printf_float)

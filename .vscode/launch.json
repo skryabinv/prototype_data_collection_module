@@ -1,0 +1,54 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "WeAct H743: Debug (OpenOCD)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "executable": "build/Debug/WeAct_H7_Sensors.elf",
+      "servertype": "openocd",
+      "device": "STM32H743VITx",
+      "configFiles": [
+        "interface/stlink.cfg",
+        "target/stm32h7x.cfg"
+      ],
+      "openOCDLaunchCommands": [
+        "adapter speed 4000"
+      ],
+      "runToEntryPoint": "main",
+      "rtos": "FreeRTOS",
+      "preLaunchTask": "CMake: Build Debug",
+      "showDevDebugOutput": "raw",
+      "presentation": {
+        "hidden": false,
+        "group": "debug",
+        "order": 1
+      },
+      "svdFile": "${workspaceFolder}/dev/svd/STM32H743.svd"
+    },
+    {
+      "name": "WeAct H743: Attach (OpenOCD)",
+      "type": "cortex-debug",
+      "request": "attach",
+      "cwd": "${workspaceFolder}",
+      "executable": "build/Debug/WeAct_H7_Sensors.elf",
+      "servertype": "openocd",
+      "device": "STM32H743VITx",
+      "configFiles": [
+        "interface/stlink.cfg",
+        "target/stm32h7x.cfg"
+      ],
+      "openOCDLaunchCommands": [
+        "adapter speed 4000"
+      ],
+      "rtos": "FreeRTOS",
+      "showDevDebugOutput": "raw",
+      "presentation": {
+        "hidden": false,
+        "group": "debug",
+        "order": 2
+      }
+    }
+  ]
+}
