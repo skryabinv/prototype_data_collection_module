@@ -76,13 +76,10 @@ cmake --build build/Debug
 ## RTOS и I2C
 
 - Одна шина `hi2c1`, несколько датчиков — последовательный доступ из задачи; при втором клиенте шины — мьютекс.
-- Цикл задачи: **не** фиксированный «опрос раз в N мс» вместо DRDY; при отсутствии данных — `osDelay(1)` (тик 1 ms).
-- **MMC5983MA** (точный режим SET/RESET, `Config::enableSetResetMeasurement = true`, `autoSetReset = false`):
-  - Протокол в драйвере: SET → измерение mag → RESET → измерение mag → **H = (R1−R2)/2**, **Offset = (R1+R2)/2**, затем температура.
-  - API **неблокирующий**: `startMeasurement()` (только из `Idle`) → в цикле задачи `hasUnreadData()` (внутри `poll()` по состояниям) → `readData()` → снова `startMeasurement()`.
-  - `SensorData`: `field` (H), `offset`, `temperature`. Кэш offset: `lastOffset()`.
-  - Не вызывать `startMeasurement()` из `hasUnreadData()` / `readData()` — только из вызывающего кода (см. `SensorTask.cpp`).
-- **BMP390** (normal mode): данные по ODR, `hasUnreadData()` + `readData()`.
+- Цикл задачи: ожидание `SensorSignals::wait()` по EXTI (MMC meas_done, BMP DRDY), без `osDelay(1)`-polling.
+- **MMC5983MA**: при `init()` — блокирующая калибровка SET/RESET → **Offset = (R_set+R_reset)/2**; далее **CMM** (рег. 0x0B) + `En_prd_set`/`AUTO_SR`; `INT_meas_done_en`; `readData()` после прерывания (0x00–0x07), **H = raw − offset**.
+- **BMP390** (normal mode): DRDY на INT → `readData()` в задаче после флага.
+- Пины INT: `main.h` (`MMC5983_INT_*`, `BMP390_DRDY_*`), инициализация EXTI — `SensorGpio_initInterruptInputs()`.
 
 ## CubeMX / отладочный вывод
 

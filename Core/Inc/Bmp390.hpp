@@ -70,6 +70,9 @@ public:
     return mInitialized;
   }
 
+  /// Вызов из EXTI (ISR): сигнал DRDY задаче, без I2C.
+  static void notifyDrdyFromIsr();
+
 private:
   static constexpr uint32_t kI2cTimeoutMs = 100;
 

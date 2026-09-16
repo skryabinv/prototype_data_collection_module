@@ -1,6 +1,8 @@
 #include "SensorTask.hpp"
 #include "Bmp390.hpp"
 #include "Mmc5983ma.hpp"
+#include "SensorGpio.hpp"
+#include "SensorSignals.hpp"
 #include "cmsis_os2.h"
 #include <cstdio>
 
@@ -22,6 +24,8 @@ void StartSensorTask(void* argument)
 {
     (void)argument;
 
+    SensorSignals::init();
+
     Bmp390 bmp390(hi2c1, BMP3_ADDR_I2C_PRIM);
     Mmc5983ma mmc5983ma(hi2c1, 0x30);
 
@@ -39,14 +43,22 @@ void StartSensorTask(void* argument)
         err != Mmc5983ma::Status::Ok) {
         fatalError("MMC5983MA configure failed");
     }
-    if (const auto err = mmc5983ma.startMeasurement(); err != Mmc5983ma::Status::Ok) {
-        fatalError("MMC5983MA start measurement failed");
+    if (const auto err = mmc5983ma.startContinuous(); err != Mmc5983ma::Status::Ok) {
+        fatalError("MMC5983MA CMM start failed");
     }
 
-    printf("Sensors ready (BMP390 + MMC5983MA SET/RESET on I2C1)\n");
+    SensorGpio_initInterruptInputs();
+
+    printf("Sensors ready (BMP390 DRDY + MMC5983MA CMM on I2C1)\n");
 
     for (;;) {
-        if (bmp390.hasUnreadData()) {
+        const uint32_t pending =
+            SensorSignals::wait(SensorSignals::kFlagAnySensor, osWaitForever);
+        if (pending == 0U) {
+            continue;
+        }
+
+        if ((pending & SensorSignals::kFlagBmpDrdy) != 0U) {
             if (const auto data = bmp390.readData(); data.has_value()) {
                 printf("BMP390  T=%.2f C  P=%.2f Pa\n", data->temperature, data->pressure);
             } else {
@@ -54,7 +66,7 @@ void StartSensorTask(void* argument)
             }
         }
 
-        if (mmc5983ma.hasUnreadData()) {
+        if ((pending & SensorSignals::kFlagMmcMeasDone) != 0U) {
             if (const auto data = mmc5983ma.readData(); data.has_value()) {
                 printf("MMC5983 H: X=%.3f Y=%.3f Z=%.3f G  T=%.1f C\n",
                        data->field.x, data->field.y, data->field.z, data->temperature);
@@ -63,11 +75,6 @@ void StartSensorTask(void* argument)
             } else {
                 printf("MMC5983MA read failed\n");
             }
-            if (const auto err = mmc5983ma.startMeasurement(); err != Mmc5983ma::Status::Ok) {
-                printf("MMC5983MA start measurement failed\n");
-            }
         }
-
-        osDelay(1);
     }
 }

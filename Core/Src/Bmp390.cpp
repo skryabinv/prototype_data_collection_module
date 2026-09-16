@@ -1,4 +1,5 @@
 #include "Bmp390.hpp"
+#include "SensorSignals.hpp"
 
 Bmp390::Bmp390(I2C_HandleTypeDef& i2c, uint8_t address) : mHi2c(i2c), mAddress(address) {
   mDev.intf = BMP3_I2C_INTF;
@@ -121,6 +122,11 @@ void Bmp390::delayUs(uint32_t period, void* /*intf_ptr*/) {
   if (ms > 0U) {
     HAL_Delay(ms);
   }
+}
+
+void Bmp390::notifyDrdyFromIsr()
+{
+  SensorSignals::bmpDrdyFromIsr();
 }
 
 Bmp390::Config Bmp390::Config::defaultNormal() {
