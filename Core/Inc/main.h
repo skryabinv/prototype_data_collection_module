@@ -57,6 +57,12 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define MMC5983_INT_Pin GPIO_PIN_8
+#define MMC5983_INT_GPIO_Port GPIOB
+#define MMC5983_INT_EXTI_IRQn EXTI9_5_IRQn
+#define BMP390_DRDY_Pin GPIO_PIN_9
+#define BMP390_DRDY_GPIO_Port GPIOB
+#define BMP390_DRDY_EXTI_IRQn EXTI9_5_IRQn
 
 /* USER CODE BEGIN Private defines */
 

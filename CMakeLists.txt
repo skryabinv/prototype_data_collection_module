@@ -51,6 +51,8 @@ set(BMP3_SOURCES
 
 set(USER_SOURCES
     Core/Src/SensorTask.cpp
+    Core/Src/SensorSignals.cpp
+    Core/Src/SensorGpio.cpp
     Core/Src/Bmp390.cpp
     Core/Src/Mmc5983ma.cpp
 )    
