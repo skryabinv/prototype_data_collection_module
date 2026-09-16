@@ -15,7 +15,6 @@ namespace {
 [[noreturn]] void fatalError(const char* message) {
   printf("%s\n", message);
   for (;;) {
-    printf("Hello, World!\n");
     osDelay(1000);
   }
 }
