@@ -60,6 +60,9 @@ public:
   /// Конфигурация режимов/OSR/ODR/фильтра (можно вызывать повторно).
   [[nodiscard]] Error configure(const Config& config);
 
+  /// Смена ODR без изменения остальных параметров (CONFIG_CMD SET_ODR).
+  [[nodiscard]] Error setOdr(uint8_t odr);
+
   /// Есть непрочитанный sample (флаги DRDY в status).
   [[nodiscard]] bool hasUnreadData();
 

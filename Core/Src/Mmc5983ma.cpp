@@ -123,7 +123,31 @@ Mmc5983ma::Status Mmc5983ma::startContinuous()
     if (!mInitialized) {
         return Status::ENotInitialized;
     }
-    return writeCtrl2(true);
+    const Status status = writeCtrl2(true);
+    if (status == Status::Ok) {
+        mCmmRunning = true;
+    }
+    return status;
+}
+
+Mmc5983ma::Status Mmc5983ma::setCmFrequency(const std::uint8_t cmFrequency)
+{
+    if (!mInitialized) {
+        return Status::ENotInitialized;
+    }
+    mConfig.cmFrequency = static_cast<std::uint8_t>(cmFrequency & 0x07U);
+    if (mCmmRunning) {
+        return writeCtrl2(true);
+    }
+    return Status::Ok;
+}
+
+Mmc5983ma::Status Mmc5983ma::triggerSetResetCalibration()
+{
+    if (!mInitialized) {
+        return Status::ENotInitialized;
+    }
+    return calibrateOffset();
 }
 
 void Mmc5983ma::notifyMeasurementDoneFromIsr()

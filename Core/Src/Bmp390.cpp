@@ -46,6 +46,22 @@ Bmp390::Error Bmp390::configure(const Config& config) {
   return toError(result);
 }
 
+Bmp390::Error Bmp390::setOdr(const uint8_t odr) {
+  if (!mInitialized) {
+    return Error::ENotInitialized;
+  }
+
+  Config config{};
+  config.pressOversampling = mSettings.odr_filter.press_os;
+  config.tempOversampling = mSettings.odr_filter.temp_os;
+  config.iirFilter = mSettings.odr_filter.iir_filter;
+  config.odr = odr;
+  config.opMode = static_cast<uint8_t>(mSettings.op_mode);
+  config.enablePressure = mSettings.press_en == BMP3_ENABLE;
+  config.enableTemperature = mSettings.temp_en == BMP3_ENABLE;
+  return configure(config);
+}
+
 bool Bmp390::fetchStatus(bmp3_status& status) {
   return mInitialized && (bmp3_get_status(&status, &mDev) == BMP3_OK);
 }

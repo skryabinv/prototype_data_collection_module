@@ -61,6 +61,12 @@ public:
     /// Включить Continuous Measurement Mode (рег. 0x0B).
     [[nodiscard]] Status startContinuous();
 
+    /// CM_Freq[2:0] при активном CMM (CONFIG_CMD SET_ODR).
+    [[nodiscard]] Status setCmFrequency(std::uint8_t cmFrequency);
+
+    /// Ручной SET/RESET для пересчёта offset (CONFIG_CMD TRIGGER_SET_RESET).
+    [[nodiscard]] Status triggerSetResetCalibration();
+
     /// Чтение 0x00–0x07 после прерывания meas_done.
     [[nodiscard]] std::optional<SensorData> readData();
 
@@ -78,6 +84,7 @@ private:
     I2C_HandleTypeDef& mI2c;
     std::uint8_t mAddress;
     bool mInitialized = false;
+    bool mCmmRunning = false;
     Config mConfig{};
     MagVector mCalibratedOffset{};
 

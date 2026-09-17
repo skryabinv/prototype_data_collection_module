@@ -55,6 +55,9 @@ set(USER_SOURCES
     Core/Src/SensorGpio.cpp
     Core/Src/Bmp390.cpp
     Core/Src/Mmc5983ma.cpp
+    Core/Src/UartProtocol.cpp
+    Core/Src/Uart4Link.cpp
+    Core/Src/ProtocolConfigHandler.cpp
     Core/Src/UsbdStdout.c
 )    
 # Link directories setup

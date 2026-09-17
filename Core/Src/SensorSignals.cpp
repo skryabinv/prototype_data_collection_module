@@ -30,6 +30,13 @@ void bmpDrdyFromIsr()
     }
 }
 
+void uartRxFromIsr()
+{
+    if (sEventFlags != nullptr) {
+        (void)osEventFlagsSet(sEventFlags, kFlagUartRx);
+    }
+}
+
 uint32_t wait(const uint32_t flags, const uint32_t timeout)
 {
     if (sEventFlags == nullptr) {
